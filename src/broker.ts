@@ -71,13 +71,14 @@ export async function consumir(fila: string, tarefa: (evento: InscricaoRealizada
 
   await canal.consume(fila, async (msg) => {
     if (!msg) return;
-    const evento = JSON.parse(msg.content.toString()) as InscricaoRealizada;
+    const corpo = msg.content.toString();
     try {
+      const evento = JSON.parse(corpo) as InscricaoRealizada;
       await tarefa(evento);
-      canal.ack(msg);
+      canal.ack(msg); // pronto: o RabbitMQ pode apagar a mensagem
     } catch (erro) {
-      console.error(`falha na inscrição #${evento.inscricaoId}, mandando para ${FILA_FALHAS}:`, erro);
-      canal.nack(msg, false, false);
+      console.error(`falha ao processar ${corpo}, mandando para ${FILA_FALHAS}:`, erro);
+      canal.nack(msg, false, false); // false no fim = não devolve para a mesma fila
     }
   });
   console.log(`ouvindo a fila ${fila}`);

@@ -1,0 +1,73 @@
+name: inscricoes
+
+# Configuração comum da API e dos consumidores (mesma imagem, comandos diferentes).
+x-app: &app
+  build: .
+  restart: unless-stopped
+  environment:
+    DATABASE_URL: postgres://inscricoes:inscricoes@postgres:5432/inscricoes
+    RABBITMQ_URL: amqp://inscricoes:inscricoes@rabbitmq:5672
+  depends_on:
+    postgres:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+services:
+  # Banco em container próprio. A porta não é publicada: só os outros containers acessam.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: inscricoes
+      POSTGRES_PASSWORD: inscricoes
+      POSTGRES_DB: inscricoes
+    volumes:
+      - dados:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: pg_isready -U inscricoes -d inscricoes
+      interval: 2s
+      retries: 30
+
+  # Broker. Painel de gestão em http://localhost:15672 (usuário e senha: inscricoes).
+  # Se a porta estiver ocupada na sua máquina: PAINEL_PORTA=15673 docker compose up ...
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: inscricoes
+      RABBITMQ_DEFAULT_PASS: inscricoes
+    ports:
+      - "${PAINEL_PORTA:-15672}:15672"
+    volumes:
+      - broker:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 3s
+      retries: 40
+
+  # A API produtora.
+  api:
+    <<: *app
+    command: node dist/api.js
+    ports:
+      - "${API_PORTA:-3000}:3000"
+    healthcheck:
+      test: wget -qO- http://localhost:3000/eventos > /dev/null
+      interval: 2s
+      retries: 30
+
+  # Consumidor 1, com duas réplicas dividindo a mesma fila.
+  ingresso:
+    <<: *app
+    command: node dist/consumidores/ingresso.js
+    deploy:
+      replicas: 2
+
+  # Consumidor 2, assinante do mesmo evento por outra fila.
+  notificacao:
+    <<: *app
+    command: node dist/consumidores/notificacao.js
+
+volumes:
+  dados:
+  broker:

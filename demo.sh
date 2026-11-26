@@ -26,13 +26,15 @@ esperar_logs() {
   local texto="$1" quantidade="$2" vistas=0 linha canal pid
   shift 2
   canal="$(mktemp -u)"; mkfifo "$canal"
-  docker compose logs -f --no-color "$@" > "$canal" & pid=$!
+  set -m  # grupo de processos próprio: no fim, encerra o docker compose e o plugin dele juntos
+  docker compose logs -f --no-color "$@" > "$canal" 2>/dev/null < /dev/null & pid=$!
+  set +m
   while [ "$vistas" -lt "$quantidade" ] && IFS= read -r -t 90 linha; do
     case "$linha" in
       *"$texto"*) vistas=$((vistas + 1)); echo "  $linha" | tee -a "$CAPTURA" ;;
     esac
   done < "$canal"
-  kill "$pid" 2>/dev/null || true; rm -f "$canal"
+  { kill -9 -- "-$pid"; wait "$pid"; } 2>/dev/null || true; rm -f "$canal"
   [ "$vistas" -ge "$quantidade" ] || { echo "Tempo esgotado: vi $vistas de $quantidade linhas." >&2; return 1; }
 }
 CAPTURA="$(mktemp)"

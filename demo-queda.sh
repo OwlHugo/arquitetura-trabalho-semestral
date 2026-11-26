@@ -12,11 +12,13 @@ titulo() { printf '\n\033[1;34m== %s ==\033[0m\n' "$1"; }
 esperar_log() {
   local linha canal pid achou=0
   canal="$(mktemp -u)"; mkfifo "$canal"
-  docker compose logs -f --no-color "$2" > "$canal" & pid=$!
+  set -m  # grupo de processos próprio: no fim, encerra o docker compose e o plugin dele juntos
+  docker compose logs -f --no-color "$2" > "$canal" 2>/dev/null < /dev/null & pid=$!
+  set +m
   while [ "$achou" -eq 0 ] && IFS= read -r -t 90 linha; do
     case "$linha" in *"$1"*) echo "  $linha"; achou=1 ;; esac
   done < "$canal"
-  kill "$pid" 2>/dev/null || true; rm -f "$canal"
+  { kill -9 -- "-$pid"; wait "$pid"; } 2>/dev/null || true; rm -f "$canal"
   [ "$achou" -eq 1 ] || { echo "Tempo esgotado esperando: $1" >&2; return 1; }
 }
 filas() { docker compose exec -T rabbitmq rabbitmqctl -q list_queues name consumers messages; }
